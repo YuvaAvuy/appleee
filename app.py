@@ -29,7 +29,7 @@ def scrape_url(url):
 # ==============================
 def chatgpt_predict(text):
     try:
-        response = openai.ChatCompletion.create(
+        response = openai.chat.completions.create(
             model="gpt-4",  # or "gpt-3.5-turbo"
             messages=[
                 {"role": "system", "content": "You are a fact-checking assistant."},
@@ -37,19 +37,18 @@ def chatgpt_predict(text):
             ],
             temperature=0
         )
-        result = response['choices'][0]['message']['content']
-        return result
+        verdict = response.choices[0].message.content
+        return verdict
     except Exception as e:
         return f"Error: {e}"
 
 # ==============================
 # Streamlit UI
 # ==============================
-st.set_page_config(page_title="📰 Fake News Detector", layout="wide")
-st.title("📰Fake News Detection App")
+st.set_page_config(page_title="📰 ChatGPT Fake News Detector", layout="wide")
+st.title("📰 ChatGPT Fake News Detection App")
 
 input_type = st.radio("Choose Input Type", ["Text", "URL"])
-
 user_input = ""
 
 if input_type == "Text":
@@ -68,7 +67,7 @@ if st.button("Analyze"):
     if not user_input.strip():
         st.warning("Please enter valid text or URL.")
     else:
-        with st.spinner("Analyzing..."):
+        with st.spinner("Analyzing with ChatGPT..."):
             prediction = chatgpt_predict(user_input)
             st.subheader("Prediction & Explanation:")
             st.write(prediction)
