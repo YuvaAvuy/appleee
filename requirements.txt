@@ -1,6 +1,6 @@
+streamlit
 transformers
-datasets
 torch
-scikit-learn
-sentencepiece
-pandas
+requests
+beautifulsoup4
+lxml
