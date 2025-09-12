@@ -1,6 +1,8 @@
-streamlit
-transformers
-torch
-requests
-beautifulsoup4
-lxml
+streamlit==1.37.0
+transformers==4.44.0
+torch>=2.0.0
+requests==2.32.3
+beautifulsoup4==4.12.3
+lxml==5.2.2
+google-generativeai==0.7.2
+python-dotenv==1.0.1
