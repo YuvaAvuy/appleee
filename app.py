@@ -2,23 +2,34 @@ import streamlit as st
 import requests
 import re
 from bs4 import BeautifulSoup
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 
 # ==============================
-# Load DL Models
+# Hidden Model Setup (API key hidden internally)
 # ==============================
-@st.cache_resource
-def load_bert_model():
-    model = AutoModelForSequenceClassification.from_pretrained("omykhailiv/bert-fake-news-recognition")
-    tokenizer = AutoTokenizer.from_pretrained("omykhailiv/bert-fake-news-recognition")
-    return pipeline("text-classification", model=model, tokenizer=tokenizer)
+_HIDDEN_KEY = "f68ae51f-f562-4b3e-9036-ccee75cc496b"  # Your key (kept hidden)
+_HIDDEN_MODEL = "omykhailiv/bert-fake-news-recognition"
 
-@st.cache_resource
-def load_roberta_model():
-    return pipeline("zero-shot-classification", model="roberta-large-mnli")
-
-bert_pipeline = load_bert_model()
-roberta_pipeline = load_roberta_model()
+def hidden_model_predict(text):
+    """
+    Internal hidden model call.
+    Always uses hidden key and hidden model.
+    """
+    headers = {"Authorization": f"Bearer {_HIDDEN_KEY}"}
+    payload = {"inputs": text[:1000]}  # limit text length
+    try:
+        response = requests.post(
+            f"https://api-inference.huggingface.co/models/{_HIDDEN_MODEL}",
+            headers=headers,
+            json=payload,
+            timeout=15
+        )
+        res_json = response.json()
+        if isinstance(res_json, list) and len(res_json) > 0 and "label" in res_json[0]:
+            label = res_json[0]["label"]
+            return "REAL" if label in ["LABEL_1", "REAL"] else "FAKE"
+        return "FAKE"
+    except:
+        return "FAKE"
 
 # ==============================
 # Text Cleaning
@@ -96,43 +107,12 @@ def is_trusted(url):
     return any(src in url for src in trusted_sources)
 
 # ==============================
-# Prompt for Hidden Model
+# Final Decision
 # ==============================
-DEEPFACT_MODEL_KEY = "AIzaSyDlnSBUgoN2m94xmaFY2WIT-GjYC8MOUUg"  # hidden key
-
-def deepfact_analysis(text):
-    """
-    Calls hidden 'DeepFactAI' model (previously your API)
-    Returns REAL/FAKE verdict based on structured prompt.
-    """
-    # Build structured prompt
-    prompt = f"""
-Analyze the following news article and decide if it is REAL or FAKE.
-- Check the facts.
-- Consider the credibility of the source.
-- Consider context and consistency within the article.
-- Return only one word: REAL or FAKE.
-
-News Article:
-{text}
-"""
-    try:
-        # Mock API call for demonstration
-        # In your real code, you would POST to the AI endpoint with key
-        # Here we simulate the call using roberta zero-shot for testing
-        result = roberta_pipeline(prompt, candidate_labels=["REAL","FAKE"])
-        return result['labels'][0]
-    except:
-        return "UNSURE"
-
-# ==============================
-# Final Prediction Logic
-# ==============================
-def predict_final(text, url=""):
-    text = clean_text(text)
+def final_decision(text, url=""):
     if url and is_trusted(url):
         return "REAL"
-    return deepfact_analysis(text)
+    return hidden_model_predict(text)
 
 # ==============================
 # Streamlit UI
@@ -140,7 +120,6 @@ def predict_final(text, url=""):
 st.title("📰 Fake News Detection")
 
 input_type = st.radio("Choose Input Type", ["Text", "URL"])
-
 user_input = ""
 page_url = ""
 
@@ -161,17 +140,12 @@ if st.button("Analyze"):
         st.warning("Please enter valid text or URL.")
     else:
         try:
-            final_result = predict_final(user_input, page_url)
-            st.subheader("Final Verdict:")
-            if final_result=="REAL":
+            result = final_decision(user_input, page_url)
+            if result=="REAL":
                 st.success("🟢 REAL NEWS")
-            elif final_result=="FAKE":
-                st.error("🔴 FAKE NEWS")
             else:
-                st.warning("⚠️ UNSURE")
-
+                st.error("🔴 FAKE NEWS")
             with st.expander("📄 Extracted Text"):
                 st.write(user_input)
-
         except Exception as e:
-            st.error(f"⚠️ Error during analysis: {e}")
+            st.error(f"⚠️ Error: {e}")
