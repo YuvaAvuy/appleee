@@ -1,64 +1,14 @@
 import streamlit as st
 import requests
-import re
 from bs4 import BeautifulSoup
+import re
+import json
 
 # ==============================
-# Hidden Model Setup (API key hidden internally)
+# Gemini API Key & Endpoint
 # ==============================
-_HIDDEN_KEY = "f68ae51f-f562-4b3e-9036-ccee75cc496b"  # Your key (kept hidden)
-_HIDDEN_MODEL = "omykhailiv/bert-fake-news-recognition"
-
-def hidden_model_predict(text):
-    """
-    Internal hidden model call.
-    Always uses hidden key and hidden model.
-    """
-    headers = {"Authorization": f"Bearer {_HIDDEN_KEY}"}
-    payload = {"inputs": text[:1000]}  # limit text length
-    try:
-        response = requests.post(
-            f"https://api-inference.huggingface.co/models/{_HIDDEN_MODEL}",
-            headers=headers,
-            json=payload,
-            timeout=15
-        )
-        res_json = response.json()
-        if isinstance(res_json, list) and len(res_json) > 0 and "label" in res_json[0]:
-            label = res_json[0]["label"]
-            return "REAL" if label in ["LABEL_1", "REAL"] else "FAKE"
-        return "FAKE"
-    except:
-        return "FAKE"
-
-# ==============================
-# Text Cleaning
-# ==============================
-def clean_text(text):
-    text = re.sub(r"\b\d{1,2}\s*(hours|minutes|ago)\b", "", text)
-    text = re.sub(r"(share|save|click here|more details|read more)", "", text, flags=re.I)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
-
-# ==============================
-# Web Scraping
-# ==============================
-def scrape_url(url):
-    try:
-        res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(res.text, "html.parser")
-        title = soup.title.string if soup.title else ""
-        article_div = soup.find("article") or soup.find("div", {"class": "articlebodycontent"}) or soup.find("div", {"id": "content-body"})
-        if article_div:
-            chunks = [elem.get_text().strip() for elem in article_div.find_all(["p","li","div"]) if len(elem.get_text().split())>5]
-        else:
-            chunks = [p.get_text().strip() for p in soup.find_all("p") if len(p.get_text().split())>5]
-        text = " ".join(chunks)
-        if not text:
-            text = soup.get_text()
-        return clean_text((title + "\n\n" + text)[:4000])
-    except:
-        return None
+GEMINI_API_KEY = "AIzaSyDlnSBUgoN2m94xmaFY2WIT-GjYC8MOUUg"
+GEMINI_ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
 
 # ==============================
 # Trusted Sources (200+)
@@ -102,50 +52,92 @@ trusted_sources = [
     "unido.org","wfp.org"
 ]
 
+# ==============================
+# Helper Functions
+# ==============================
 def is_trusted(url):
     url = url.lower()
     return any(src in url for src in trusted_sources)
 
+def scrape_url(url):
+    try:
+        res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        soup = BeautifulSoup(res.text, "html.parser")
+        article_div = soup.find("article") or soup.find("div", {"class": "articlebodycontent"}) or soup.find("div", {"id": "content-body"})
+        if article_div:
+            chunks = [elem.get_text().strip() for elem in article_div.find_all(["p","li","div"]) if len(elem.get_text().split())>5]
+        else:
+            chunks = [p.get_text().strip() for p in soup.find_all("p") if len(p.get_text().split())>5]
+        text = " ".join(chunks)
+        text = re.sub(r"\s+", " ", text)
+        return text[:4000]
+    except:
+        return None
+
+def query_gemini(text):
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [
+            {"parts":[{"text": f"Analyze the following news and give a reliable verdict (REAL or FAKE) with brief reasoning:\n\n{text}"}]}
+        ]
+    }
+    try:
+        resp = requests.post(GEMINI_ENDPOINT, headers=headers, data=json.dumps(payload), timeout=20)
+        if resp.status_code==200:
+            data = resp.json()
+            # Extract generated text
+            parts = data.get("candidates", [{}])[0].get("content", [])
+            combined_text = " ".join([p.get("text","") for p in parts])
+            # Simple heuristic
+            if "fake" in combined_text.lower():
+                return "FAKE"
+            elif "real" in combined_text.lower():
+                return "REAL"
+            else:
+                return "UNSURE"
+        else:
+            return f"ERROR {resp.status_code}"
+    except Exception as e:
+        return f"Exception: {e}"
+
 # ==============================
 # Final Decision
 # ==============================
-def final_decision(text, url=""):
+def final_decision(text="", url=""):
     if url and is_trusted(url):
         return "REAL"
-    return hidden_model_predict(text)
+    if url and not is_trusted(url):
+        scraped = scrape_url(url)
+        if scraped:
+            return query_gemini(scraped)
+        else:
+            return "UNSURE (Could not scrape URL)"
+    if text:
+        return query_gemini(text)
+    return "UNSURE (No input provided)"
 
 # ==============================
 # Streamlit UI
 # ==============================
-st.title("📰 Fake News Detection")
+st.title("📰 News Fact Checker (Gemini API)")
 
 input_type = st.radio("Choose Input Type", ["Text", "URL"])
-user_input = ""
+user_text = ""
 page_url = ""
 
-if input_type == "Text":
-    user_input = st.text_area("Enter news text here", height=200)
-elif input_type == "URL":
-    page_url = st.text_input("Enter news article URL")
-    if page_url:
-        scraped = scrape_url(page_url)
-        if scraped:
-            st.text_area("Extracted Article", scraped, height=300)
-            user_input = scraped
-        else:
-            st.warning("⚠️ Could not scrape the URL.")
+if input_type=="Text":
+    user_text = st.text_area("Enter news text here:", height=250)
+elif input_type=="URL":
+    page_url = st.text_input("Enter news article URL:")
 
 if st.button("Analyze"):
-    if not user_input.strip():
+    if not user_text.strip() and not page_url.strip():
         st.warning("Please enter valid text or URL.")
     else:
-        try:
-            result = final_decision(user_input, page_url)
-            if result=="REAL":
-                st.success("🟢 REAL NEWS")
-            else:
-                st.error("🔴 FAKE NEWS")
-            with st.expander("📄 Extracted Text"):
-                st.write(user_input)
-        except Exception as e:
-            st.error(f"⚠️ Error: {e}")
+        result = final_decision(user_text, page_url)
+        if result=="REAL":
+            st.success("🟢 REAL NEWS")
+        elif result=="FAKE":
+            st.error("🔴 FAKE NEWS")
+        else:
+            st.info(f"⚪ Verdict: {result}")
