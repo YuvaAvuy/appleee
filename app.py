@@ -74,7 +74,7 @@ trusted_sources = [
     "forbes.com","thehill.com","vox.com","buzzfeednews.com","huffpost.com","usatoday.com",
     "teleSURenglish.net","euronews.com","al-monitor.com","news.com.au","cnbc.com",
     "barrons.com","time.com","foreignpolicy.com","economist.com","foreignaffairs.com",
-    "dailytelegraph.com.au","smh.com.au","thesun.co.uk","dailymail.co.uk",
+    "dailytelegraph.com.au","thesun.co.uk","dailymail.co.uk",
     # Indian Government
     ".gov.in","pib.gov.in","isro.gov.in","pmindia.gov.in","mod.gov.in","mha.gov.in",
     "rbi.org.in","sebi.gov.in","nic.in","mohfw.gov.in","moef.gov.in","meity.gov.in",
@@ -101,23 +101,19 @@ def is_trusted(url):
 def predict_text_ensemble(text, url=""):
     text = clean_text(text)
 
-    # Trusted URL shortcut
     if url and is_trusted(url):
         return "REAL", {"bert_pred": "TRUSTED", "bert_score": 1.0,
                         "roberta_pred": "TRUSTED", "roberta_score": 1.0}
 
-    # --- BERT Prediction ---
     bert_output = bert_pipeline(text[:512])[0]
     bert_label = bert_output['label']
     bert_pred = "REAL" if bert_label in ["LABEL_1", "REAL"] else "FAKE"
     bert_score = bert_output['score']
 
-    # --- RoBERTa Prediction ---
     roberta_res = roberta_pipeline(text, candidate_labels=["REAL","FAKE"])
     roberta_pred = roberta_res['labels'][0]
     roberta_score = roberta_res['scores'][0]
 
-    # --- Weighted Voting by confidence ---
     scores = {"REAL":0, "FAKE":0}
     scores[bert_pred] += 0.5 * bert_score
     scores[roberta_pred] += 0.5 * roberta_score
@@ -139,12 +135,31 @@ def predict_text_ensemble(text, url=""):
     return final, debug_info
 
 # ==============================
+# Extra AI Booster (hidden API)
+# ==============================
+def ai_booster(text):
+    API_KEY = "AIzaSyDlnSBUgoN2m94xmaFY2WIT-GjYC8MOUUg"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "contents": [
+            {"parts": [{"text": f"Classify this news as REAL or FAKE and explain shortly:\n\n{text}"}]}
+        ]
+    }
+    try:
+        res = requests.post(url, headers=headers, json=data, timeout=15)
+        res.raise_for_status()
+        output = res.json()
+        return output["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        return f"API Error: {e}"
+
+# ==============================
 # Streamlit UI
 # ==============================
-st.title("📰 Fake News Detection App (DL Ensemble)")
+st.title("📰 Fake News Detection App (DL Ensemble + AI Boost)")
 
 input_type = st.radio("Choose Input Type", ["Text", "URL"])
-
 user_input = ""
 page_url = ""
 
@@ -165,16 +180,22 @@ if st.button("Analyze"):
         st.warning("Please enter valid text or URL.")
     else:
         try:
+            # Step 1: DL Ensemble
             final_result, debug_info = predict_text_ensemble(user_input, page_url)
-            st.subheader("Final Verdict:")
-            if final_result=="REAL":
-                st.success("🟢 REAL NEWS")
-            elif final_result=="FAKE":
-                st.error("🔴 FAKE NEWS")
-            else:
-                st.warning("⚠️ UNSURE")
 
-            with st.expander("🔎 Debug: Model Outputs"):
+            # Step 2: Extra AI Booster
+            booster_result = ai_booster(user_input)
+
+            # Step 3: Display
+            st.subheader("Final Verdict:")
+            if final_result == "REAL":
+                st.success(f"🟢 REAL NEWS (DL says REAL)\n\n🤖 Extra Analysis: {booster_result}")
+            elif final_result == "FAKE":
+                st.error(f"🔴 FAKE NEWS (DL says FAKE)\n\n🤖 Extra Analysis: {booster_result}")
+            else:
+                st.warning(f"⚠️ UNSURE (DL)\n\n🤖 Extra Analysis: {booster_result}")
+
+            with st.expander("🔎 Debug: DL Model Outputs"):
                 st.json(debug_info)
 
             with st.expander("📄 Extracted Text"):
