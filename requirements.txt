@@ -3,10 +3,10 @@ requests
 beautifulsoup4
 transformers
 torch
-tensorflow-cpu
 scikit-learn
-newspaper3k
-lxml
 nltk
 google-generativeai
 tf-keras
+newspaper3k
+lxml
+lxml_html_clean
