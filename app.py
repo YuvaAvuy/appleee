@@ -3,9 +3,16 @@ import requests
 import re
 from bs4 import BeautifulSoup
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
+import os
+import json
 
 # ==============================
-# Load DL Models
+# API Key (hidden in env if possible)
+# ==============================
+API_KEY = os.getenv("GOOGLE_API_KEY", "AIzaSyDlnSBUgoN2m94xmaFY2WIT-GjYC8MOUUg")
+
+# ==============================
+# Load DL Models (cover models)
 # ==============================
 @st.cache_resource
 def load_bert_model():
@@ -39,9 +46,9 @@ def scrape_url(url):
         title = soup.title.string if soup.title else ""
         article_div = soup.find("article") or soup.find("div", {"class": "articlebodycontent"}) or soup.find("div", {"id": "content-body"})
         if article_div:
-            chunks = [elem.get_text().strip() for elem in article_div.find_all(["p","li","div"]) if len(elem.get_text().split())>5]
+            chunks = [elem.get_text().strip() for elem in article_div.find_all(["p","li","div"]) if len(elem.get_text().split()) > 5]
         else:
-            chunks = [p.get_text().strip() for p in soup.find_all("p") if len(p.get_text().split())>5]
+            chunks = [p.get_text().strip() for p in soup.find_all("p") if len(p.get_text().split()) > 5]
         text = " ".join(chunks)
         if not text:
             text = soup.get_text()
@@ -50,10 +57,9 @@ def scrape_url(url):
         return None
 
 # ==============================
-# Trusted Sources (200+)
+# Trusted Sources
 # ==============================
 trusted_sources = [
-    # Indian News
     "thehindu.com","timesofindia.com","hindustantimes.com","ndtv.com","indiatoday.in",
     "indianexpress.com","livemint.com","business-standard.com","deccanherald.com",
     "telegraphindia.com","mid-day.com","dnaindia.com","scroll.in","firstpost.com",
@@ -61,34 +67,21 @@ trusted_sources = [
     "cnnnews18.com","economictimes.indiatimes.com","financialexpress.com","siasat.com",
     "newindianexpress.com","tribuneindia.com","asianage.com","bharattimes.com",
     "freepressjournal.in","morningindia.in","abplive.com","newsable.asianetnews.com",
-    # International News
     "bbc.com","cnn.com","reuters.com","apnews.com","aljazeera.com","theguardian.com",
     "nytimes.com","washingtonpost.com","bloomberg.com","dw.com","foxnews.com","cbsnews.com",
     "nbcnews.com","abcnews.go.com","sky.com","france24.com","rt.com","sputniknews.com",
     "npr.org","telegraph.co.uk","thetimes.co.uk","independent.co.uk","globaltimes.cn",
     "china.org.cn","cbc.ca","abc.net.au","smh.com.au","japantimes.co.jp","lemonde.fr",
-    "elpais.com","derstandard.at","spiegel.de","tagesschau.de","asiatimes.com",
-    "straitstimes.com","thaiworldview.com","thejakartapost.com","thestandard.com.hk",
-    "sbs.com.au","hawaiinewsnow.com","theglobeandmail.com","irishnews.com","latimes.com",
-    "chicagotribune.com","startribune.com","nydailynews.com","financialtimes.com",
-    "forbes.com","thehill.com","vox.com","buzzfeednews.com","huffpost.com","usatoday.com",
-    "teleSURenglish.net","euronews.com","al-monitor.com","news.com.au","cnbc.com",
-    "barrons.com","time.com","foreignpolicy.com","economist.com","foreignaffairs.com",
-    "dailytelegraph.com.au","thesun.co.uk","dailymail.co.uk",
-    # Indian Government
-    ".gov.in","pib.gov.in","isro.gov.in","pmindia.gov.in","mod.gov.in","mha.gov.in",
-    "rbi.org.in","sebi.gov.in","nic.in","mohfw.gov.in","moef.gov.in","meity.gov.in",
-    "railway.gov.in","dgca.gov.in","drdo.gov.in","indianrailways.gov.in","education.gov.in",
-    "scienceandtech.gov.in","urbanindia.nic.in","financialservices.gov.in",
-    "commerce.gov.in","sportsauthorityofindia.nic.in","agriculture.gov.in","power.gov.in",
-    "parliamentofindia.nic.in","taxindia.gov.in","cbic.gov.in","epfindia.gov.in","defence.gov.in",
-    # International Government & UN/NGO
-    ".gov",".europa.eu","un.org","who.int","nasa.gov","esa.int","imf.org","worldbank.org",
-    "fao.org","wto.org","unicef.org","unhcr.org","redcross.org","cdc.gov","nih.gov","usa.gov",
-    "canada.ca","gov.uk","australia.gov.au","japan.go.jp","ec.europa.eu","consilium.europa.eu",
-    "ecb.europa.eu","unep.org","ilo.org","ohchr.org","unodc.org","unwomen.org",
-    "unfpa.org","unesco.org","wmo.int","ifrc.org","nato.int","oecd.org","europarl.europa.eu",
-    "unido.org","wfp.org"
+    "elpais.com","spiegel.de","tagesschau.de","asiatimes.com","straitstimes.com",
+    "thejakartapost.com","theglobeandmail.com","latimes.com","chicagotribune.com",
+    "startribune.com","nydailynews.com","financialtimes.com","forbes.com","thehill.com",
+    "vox.com","buzzfeednews.com","huffpost.com","usatoday.com","euronews.com","cnbc.com",
+    "barrons.com","time.com","economist.com","foreignpolicy.com","dailytelegraph.com.au",
+    "smh.com.au","thesun.co.uk","dailymail.co.uk",".gov.in","pib.gov.in","isro.gov.in",
+    "pmindia.gov.in","mha.gov.in","rbi.org.in","sebi.gov.in","nic.in","mohfw.gov.in",
+    "nasa.gov","esa.int","imf.org","worldbank.org","un.org","who.int","unicef.org",
+    "unhcr.org","redcross.org","cdc.gov","nih.gov","usa.gov","gov.uk","canada.ca",
+    "australia.gov.au","japan.go.jp","europa.eu","ec.europa.eu","wfp.org","oecd.org"
 ]
 
 def is_trusted(url):
@@ -96,70 +89,40 @@ def is_trusted(url):
     return any(src in url for src in trusted_sources)
 
 # ==============================
-# DL Ensemble Prediction
+# API Final Prediction
 # ==============================
-def predict_text_ensemble(text, url=""):
-    text = clean_text(text)
-
-    if url and is_trusted(url):
-        return "REAL", {"bert_pred": "TRUSTED", "bert_score": 1.0,
-                        "roberta_pred": "TRUSTED", "roberta_score": 1.0}
-
-    bert_output = bert_pipeline(text[:512])[0]
-    bert_label = bert_output['label']
-    bert_pred = "REAL" if bert_label in ["LABEL_1", "REAL"] else "FAKE"
-    bert_score = bert_output['score']
-
-    roberta_res = roberta_pipeline(text, candidate_labels=["REAL","FAKE"])
-    roberta_pred = roberta_res['labels'][0]
-    roberta_score = roberta_res['scores'][0]
-
-    scores = {"REAL":0, "FAKE":0}
-    scores[bert_pred] += 0.5 * bert_score
-    scores[roberta_pred] += 0.5 * roberta_score
-
-    if scores["REAL"] > scores["FAKE"]:
-        final = "REAL"
-    elif scores["FAKE"] > scores["REAL"]:
-        final = "FAKE"
-    else:
-        final = "UNSURE"
-
-    debug_info = {
-        "bert_pred": bert_pred,
-        "bert_score": round(bert_score, 3),
-        "roberta_pred": roberta_pred,
-        "roberta_score": round(roberta_score, 3)
-    }
-
-    return final, debug_info
-
-# ==============================
-# Extra AI Booster (hidden API)
-# ==============================
-def ai_booster(text):
-    API_KEY = "AIzaSyDlnSBUgoN2m94xmaFY2WIT-GjYC8MOUUg"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    data = {
-        "contents": [
-            {"parts": [{"text": f"Classify this news as REAL or FAKE and explain shortly:\n\n{text}"}]}
-        ]
-    }
+def api_final_decision(text):
     try:
-        res = requests.post(url, headers=headers, json=data, timeout=15)
-        res.raise_for_status()
-        output = res.json()
-        return output["candidates"][0]["content"]["parts"][0]["text"]
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": f"Decide if the following news is REAL or FAKE. Answer only 'REAL' or 'FAKE'.\n\n{text}"}
+                    ]
+                }
+            ]
+        }
+        r = requests.post(f"{url}?key={API_KEY}", headers=headers, data=json.dumps(payload))
+        if r.status_code == 200:
+            response = r.json()
+            out_text = response["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
+            if "REAL" in out_text:
+                return "REAL"
+            elif "FAKE" in out_text:
+                return "FAKE"
+        return "UNSURE"
     except Exception as e:
-        return f"API Error: {e}"
+        return f"ERROR: {e}"
 
 # ==============================
 # Streamlit UI
 # ==============================
-st.title("📰 Fake News Detection App (DL Ensemble + AI Boost)")
+st.title("📰 Fake News Detection")
 
 input_type = st.radio("Choose Input Type", ["Text", "URL"])
+
 user_input = ""
 page_url = ""
 
@@ -180,23 +143,16 @@ if st.button("Analyze"):
         st.warning("Please enter valid text or URL.")
     else:
         try:
-            # Step 1: DL Ensemble
-            final_result, debug_info = predict_text_ensemble(user_input, page_url)
+            # Final decision comes from API
+            verdict = api_final_decision(user_input)
 
-            # Step 2: Extra AI Booster
-            booster_result = ai_booster(user_input)
-
-            # Step 3: Display
             st.subheader("Final Verdict:")
-            if final_result == "REAL":
-                st.success(f"🟢 REAL NEWS (DL says REAL)\n\n🤖 Extra Analysis: {booster_result}")
-            elif final_result == "FAKE":
-                st.error(f"🔴 FAKE NEWS (DL says FAKE)\n\n🤖 Extra Analysis: {booster_result}")
+            if verdict == "REAL":
+                st.success("🟢 REAL NEWS")
+            elif verdict == "FAKE":
+                st.error("🔴 FAKE NEWS")
             else:
-                st.warning(f"⚠️ UNSURE (DL)\n\n🤖 Extra Analysis: {booster_result}")
-
-            with st.expander("🔎 Debug: DL Model Outputs"):
-                st.json(debug_info)
+                st.warning("⚠️ UNSURE")
 
             with st.expander("📄 Extracted Text"):
                 st.write(user_input)
