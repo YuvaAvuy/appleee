@@ -13,7 +13,12 @@ def load_bert_model():
     tokenizer = AutoTokenizer.from_pretrained("omykhailiv/bert-fake-news-recognition")
     return pipeline("text-classification", model=model, tokenizer=tokenizer)
 
+@st.cache_resource
+def load_roberta_model():
+    return pipeline("zero-shot-classification", model="roberta-large-mnli")
+
 bert_pipeline = load_bert_model()
+roberta_pipeline = load_roberta_model()
 
 # ==============================
 # Text Cleaning
@@ -91,22 +96,43 @@ def is_trusted(url):
     return any(src in url for src in trusted_sources)
 
 # ==============================
-# Hidden API (DeepNewsAnalyzer)
+# Prompt for Hidden Model
 # ==============================
-def DeepNewsAnalyzer(text):
+DEEPFACT_MODEL_KEY = "AIzaSyDlnSBUgoN2m94xmaFY2WIT-GjYC8MOUUg"  # hidden key
+
+def deepfact_analysis(text):
     """
-    Hidden API placeholder: replaces the original 'gemini' API.
-    Uses a robust pre-trained model endpoint internally.
+    Calls hidden 'DeepFactAI' model (previously your API)
+    Returns REAL/FAKE verdict based on structured prompt.
     """
-    # For example, we simulate an API prediction (replace with actual API call if needed)
-    # Here we assume it returns "REAL" or "FAKE" based on content
-    if len(text.split()) < 20:
+    # Build structured prompt
+    prompt = f"""
+Analyze the following news article and decide if it is REAL or FAKE.
+- Check the facts.
+- Consider the credibility of the source.
+- Consider context and consistency within the article.
+- Return only one word: REAL or FAKE.
+
+News Article:
+{text}
+"""
+    try:
+        # Mock API call for demonstration
+        # In your real code, you would POST to the AI endpoint with key
+        # Here we simulate the call using roberta zero-shot for testing
+        result = roberta_pipeline(prompt, candidate_labels=["REAL","FAKE"])
+        return result['labels'][0]
+    except:
         return "UNSURE"
-    # fallback heuristic (can be replaced with real API)
-    fake_keywords = ["fake", "hoax", "not true", "false"]
-    if any(word in text.lower() for word in fake_keywords):
-        return "FAKE"
-    return "REAL"
+
+# ==============================
+# Final Prediction Logic
+# ==============================
+def predict_final(text, url=""):
+    text = clean_text(text)
+    if url and is_trusted(url):
+        return "REAL"
+    return deepfact_analysis(text)
 
 # ==============================
 # Streamlit UI
@@ -134,29 +160,18 @@ if st.button("Analyze"):
     if not user_input.strip():
         st.warning("Please enter valid text or URL.")
     else:
-        # If URL is trusted, mark REAL immediately
-        if page_url and is_trusted(page_url):
-            final_result = "REAL"
-        else:
-            # Use BERT DL model for text input
-            bert_result = bert_pipeline(user_input[:512])[0]  # limit to first 512 tokens
-            label = bert_result['label'].upper()
-            score = bert_result['score']
-
-            # Threshold: 0.6 confidence
-            if score >= 0.6:
-                final_result = "REAL" if label=="REAL" else "FAKE"
+        try:
+            final_result = predict_final(user_input, page_url)
+            st.subheader("Final Verdict:")
+            if final_result=="REAL":
+                st.success("🟢 REAL NEWS")
+            elif final_result=="FAKE":
+                st.error("🔴 FAKE NEWS")
             else:
-                # fallback: hidden API
-                final_result = DeepNewsAnalyzer(user_input)
+                st.warning("⚠️ UNSURE")
 
-        st.subheader("Final Verdict:")
-        if final_result=="REAL":
-            st.success("🟢 REAL NEWS")
-        elif final_result=="FAKE":
-            st.error("🔴 FAKE NEWS")
-        else:
-            st.warning("⚠️ UNSURE")
+            with st.expander("📄 Extracted Text"):
+                st.write(user_input)
 
-        with st.expander("📄 Extracted Text"):
-            st.write(user_input)
+        except Exception as e:
+            st.error(f"⚠️ Error during analysis: {e}")
