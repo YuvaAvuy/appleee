@@ -5,48 +5,7 @@ from bs4 import BeautifulSoup
 import json
 
 # ==============================
-# Gemini API function
-# ==============================
-GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-
-def query_gemini(text):
-    API_KEY = "AIzaSyDlnSBUgoN2m94xmaFY2WIT-GjYC8MOUUg"  # hidden in code
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [
-            {"parts":[{"text": f"Analyze the following news and give a reliable verdict (REAL or FAKE) with brief reasoning:\n\n{text}"}]}
-        ]
-    }
-    try:
-        resp = requests.post(f"{GEMINI_ENDPOINT}?key={API_KEY}", headers=headers, data=json.dumps(payload), timeout=20)
-        if resp.status_code == 200:
-            data = resp.json()
-            candidates = data.get("candidates", [])
-            combined_text = ""
-
-            for cand in candidates:
-                if isinstance(cand, str):
-                    combined_text += cand + " "
-                elif isinstance(cand, dict):
-                    content = cand.get("content", [])
-                    for part in content:
-                        combined_text += part.get("text","") + " "
-
-            combined_text = combined_text.strip()
-
-            if "fake" in combined_text.lower():
-                return "FAKE"
-            elif "real" in combined_text.lower():
-                return "REAL"
-            else:
-                return "UNSURE"
-        else:
-            return f"ERROR {resp.status_code}"
-    except Exception as e:
-        return f"Exception: {e}"
-
-# ==============================
-# Text cleaning
+# Web Scraping
 # ==============================
 def clean_text(text):
     text = re.sub(r"\b\d{1,2}\s*(hours|minutes|ago)\b", "", text)
@@ -54,9 +13,6 @@ def clean_text(text):
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
-# ==============================
-# Web scraping
-# ==============================
 def scrape_url(url):
     try:
         res = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
@@ -75,7 +31,7 @@ def scrape_url(url):
         return None
 
 # ==============================
-# Trusted sources (200+)
+# Trusted Sources (200+)
 # ==============================
 trusted_sources = [
     # Indian News
@@ -121,7 +77,36 @@ def is_trusted(url):
     return any(src in url for src in trusted_sources)
 
 # ==============================
-# Final decision
+# Hidden API Call (Gemini)
+# ==============================
+GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+def query_gemini(text):
+    API_KEY = "AIzaSyDlnSBUgoN2m94xmaFY2WIT-GjYC8MOUUg"  # hidden key
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [
+            {"parts":[{"text": f"Classify the following news strictly as either REAL or FAKE. Only respond with one word: REAL or FAKE.\n\n{text}"}]}
+        ]
+    }
+    try:
+        resp = requests.post(f"{GEMINI_ENDPOINT}?key={API_KEY}", headers=headers, data=json.dumps(payload), timeout=20)
+        data = resp.json()
+        candidates = data.get("candidates", [])
+        if candidates and isinstance(candidates[0], dict):
+            content = candidates[0].get("content", [])
+            if content and isinstance(content[0], dict):
+                answer = content[0].get("text","").strip().upper()
+                if "FAKE" in answer:
+                    return "FAKE"
+                elif "REAL" in answer:
+                    return "REAL"
+        return "UNSURE"
+    except Exception as e:
+        return f"Exception: {e}"
+
+# ==============================
+# Final Prediction
 # ==============================
 def final_decision(text, url=""):
     if url and is_trusted(url):
@@ -153,15 +138,12 @@ if st.button("Analyze"):
     if not user_input.strip():
         st.warning("Please enter valid text or URL.")
     else:
-        try:
-            result = final_decision(user_input, page_url)
-            if result=="REAL":
-                st.success("🟢 REAL NEWS")
-            elif result=="FAKE":
-                st.error("🔴 FAKE NEWS")
-            else:
-                st.warning("⚠️ UNSURE / Could not classify confidently")
-            with st.expander("📄 Extracted Text"):
-                st.write(user_input)
-        except Exception as e:
-            st.error(f"⚠️ Error: {e}")
+        result = final_decision(user_input, page_url)
+        if result=="REAL":
+            st.success("🟢 REAL NEWS")
+        elif result=="FAKE":
+            st.error("🔴 FAKE NEWS")
+        else:
+            st.warning(f"⚠️ {result}")
+        with st.expander("📄 Extracted Text"):
+            st.write(user_input)
