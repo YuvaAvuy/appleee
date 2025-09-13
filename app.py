@@ -136,7 +136,7 @@ def final_decision(text, url=""):
 # ==============================
 # Streamlit UI
 # ==============================
-st.title("📰 Fake News Detection (Final Decision via API)")
+st.title("📰 Fake News Detection")
 
 input_type = st.radio("Choose Input Type", ["Text", "URL"])
 
