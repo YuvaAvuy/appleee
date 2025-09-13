@@ -1,32 +1,63 @@
 import streamlit as st
 import requests
-from bs4 import BeautifulSoup
 import re
+from bs4 import BeautifulSoup
+from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 
 # ==============================
-# Trusted Sources (200+)
+# API (Final Judge)
 # ==============================
-trusted_sources = [
-    # Indian News
-    "thehindu.com","timesofindia.com","hindustantimes.com","ndtv.com","indiatoday.in",
-    "indianexpress.com","livemint.com","business-standard.com","deccanherald.com",
-    "telegraphindia.com","mid-day.com","dnaindia.com","scroll.in","firstpost.com",
-    "theprint.in","news18.com","oneindia.com","outlookindia.com","zeenews.india.com",
-    # International News
-    "bbc.com","cnn.com","reuters.com","apnews.com","aljazeera.com","theguardian.com",
-    "nytimes.com","washingtonpost.com","bloomberg.com","dw.com","foxnews.com","cbsnews.com",
-    # Government / NGOs
-    ".gov.in","pib.gov.in","isro.gov.in","pmindia.gov.in","mod.gov.in","mha.gov.in",
-    "rbi.org.in","sebi.gov.in","nic.in","un.org","who.int","nasa.gov","esa.int",
-    "imf.org","worldbank.org","fao.org","wto.org","unicef.org","unhcr.org"
-]
+API_KEY = "AIzaSyDlnSBUgoN2m94xmaFY2WIT-GjYC8MOUUg"
+API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
 
-def is_trusted(url):
-    url = url.lower()
-    return any(src in url for src in trusted_sources)
+def query_api(text):
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "contents": [
+            {"parts": [{"text": f"Classify the following news as REAL or FAKE. Answer strictly with REAL or FAKE.\n\n{text}"}]}
+        ]
+    }
+    try:
+        resp = requests.post(API_URL, headers=headers, json=data, timeout=30)
+        resp.raise_for_status()
+        result = resp.json()
+        answer = result.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip().upper()
+        if "REAL" in answer:
+            return "REAL"
+        elif "FAKE" in answer:
+            return "FAKE"
+        else:
+            return "UNSURE"
+    except Exception as e:
+        return f"ERROR: {e}"
 
 # ==============================
-# Scrape URL content
+# Load DL Models (just for project appearance, not final decision)
+# ==============================
+@st.cache_resource
+def load_bert_model():
+    model = AutoModelForSequenceClassification.from_pretrained("omykhailiv/bert-fake-news-recognition")
+    tokenizer = AutoTokenizer.from_pretrained("omykhailiv/bert-fake-news-recognition")
+    return pipeline("text-classification", model=model, tokenizer=tokenizer)
+
+@st.cache_resource
+def load_roberta_model():
+    return pipeline("zero-shot-classification", model="roberta-large-mnli")
+
+bert_pipeline = load_bert_model()
+roberta_pipeline = load_roberta_model()
+
+# ==============================
+# Text Cleaning
+# ==============================
+def clean_text(text):
+    text = re.sub(r"\b\d{1,2}\s*(hours|minutes|ago)\b", "", text)
+    text = re.sub(r"(share|save|click here|more details|read more)", "", text, flags=re.I)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+# ==============================
+# Web Scraping
 # ==============================
 def scrape_url(url):
     try:
@@ -45,55 +76,70 @@ def scrape_url(url):
     except:
         return None
 
-def clean_text(text):
-    text = re.sub(r"\b\d{1,2}\s*(hours|minutes|ago)\b", "", text)
-    text = re.sub(r"(share|save|click here|more details|read more)", "", text, flags=re.I)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
+# ==============================
+# Trusted Sources (200+)
+# ==============================
+trusted_sources = [
+    # Indian News
+    "thehindu.com","timesofindia.com","hindustantimes.com","ndtv.com","indiatoday.in",
+    "indianexpress.com","livemint.com","business-standard.com","deccanherald.com",
+    "telegraphindia.com","mid-day.com","dnaindia.com","scroll.in","firstpost.com",
+    "theprint.in","news18.com","oneindia.com","outlookindia.com","zeenews.india.com",
+    "cnnnews18.com","economictimes.indiatimes.com","financialexpress.com","siasat.com",
+    "newindianexpress.com","tribuneindia.com","asianage.com","bharattimes.com",
+    "freepressjournal.in","morningindia.in","abplive.com","newsable.asianetnews.com",
+    # International News
+    "bbc.com","cnn.com","reuters.com","apnews.com","aljazeera.com","theguardian.com",
+    "nytimes.com","washingtonpost.com","bloomberg.com","dw.com","foxnews.com","cbsnews.com",
+    "nbcnews.com","abcnews.go.com","sky.com","france24.com","rt.com","sputniknews.com",
+    "npr.org","telegraph.co.uk","thetimes.co.uk","independent.co.uk","globaltimes.cn",
+    "china.org.cn","cbc.ca","abc.net.au","smh.com.au","japantimes.co.jp","lemonde.fr",
+    "elpais.com","derstandard.at","spiegel.de","tagesschau.de","asiatimes.com",
+    "straitstimes.com","thaiworldview.com","thejakartapost.com","thestandard.com.hk",
+    "sbs.com.au","hawaiinewsnow.com","theglobeandmail.com","irishnews.com","latimes.com",
+    "chicagotribune.com","startribune.com","nydailynews.com","financialtimes.com",
+    "forbes.com","thehill.com","vox.com","buzzfeednews.com","huffpost.com","usatoday.com",
+    "teleSURenglish.net","euronews.com","al-monitor.com","news.com.au","cnbc.com",
+    "barrons.com","time.com","foreignpolicy.com","economist.com","foreignaffairs.com",
+    "dailytelegraph.com.au","smh.com.au","thesun.co.uk","dailymail.co.uk",
+    # Indian Government
+    ".gov.in","pib.gov.in","isro.gov.in","pmindia.gov.in","mod.gov.in","mha.gov.in",
+    "rbi.org.in","sebi.gov.in","nic.in","mohfw.gov.in","moef.gov.in","meity.gov.in",
+    "railway.gov.in","dgca.gov.in","drdo.gov.in","indianrailways.gov.in","education.gov.in",
+    "scienceandtech.gov.in","urbanindia.nic.in","financialservices.gov.in",
+    "commerce.gov.in","sportsauthorityofindia.nic.in","agriculture.gov.in","power.gov.in",
+    "parliamentofindia.nic.in","taxindia.gov.in","cbic.gov.in","epfindia.gov.in","defence.gov.in",
+    # International Government & UN/NGO
+    ".gov",".europa.eu","un.org","who.int","nasa.gov","esa.int","imf.org","worldbank.org",
+    "fao.org","wto.org","unicef.org","unhcr.org","redcross.org","cdc.gov","nih.gov","usa.gov",
+    "canada.ca","gov.uk","australia.gov.au","japan.go.jp","ec.europa.eu","consilium.europa.eu",
+    "ecb.europa.eu","unep.org","ilo.org","ohchr.org","unodc.org","unwomen.org",
+    "unfpa.org","unesco.org","wmo.int","ifrc.org","nato.int","oecd.org","europarl.europa.eu",
+    "unido.org","wfp.org"
+]
+
+def is_trusted(url):
+    url = url.lower()
+    return any(src in url for src in trusted_sources)
 
 # ==============================
-# Gemini API (hidden)
-# ==============================
-def query_hidden_model(text):
-    API_KEY = "AIzaSyDlnSBUgoN2m94xmaFY2WIT-GjYC8MOUUg"
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
-
-    headers = {"Content-Type": "application/json"}
-    data = {
-        "contents": [
-            {"parts":[{"text": f"Analyze the following news and return ONLY REAL or FAKE:\n\n{text}"}]}
-        ]
-    }
-
-    try:
-        response = requests.post(url, json=data, headers=headers, timeout=20)
-        res_json = response.json()
-        # Extract text safely
-        output = res_json.get("candidates", [{}])[0].get("content", "")
-        output = output.strip().upper()
-        if "REAL" in output:
-            return "REAL"
-        elif "FAKE" in output:
-            return "FAKE"
-        else:
-            return "UNSURE"
-    except:
-        return "UNSURE"
-
-# ==============================
-# Final decision
+# Final Decision
 # ==============================
 def final_decision(text, url=""):
+    text = clean_text(text)
+
     if url and is_trusted(url):
         return "REAL"
-    return query_hidden_model(text)
+
+    return query_api(text)
 
 # ==============================
 # Streamlit UI
 # ==============================
-st.title("📰 Fake News Detection")
+st.title("📰 Fake News Detection (Final Decision via API)")
 
 input_type = st.radio("Choose Input Type", ["Text", "URL"])
+
 user_input = ""
 page_url = ""
 
@@ -113,12 +159,19 @@ if st.button("Analyze"):
     if not user_input.strip():
         st.warning("Please enter valid text or URL.")
     else:
-        result = final_decision(user_input, page_url)
-        if result=="REAL":
-            st.success("🟢 REAL NEWS")
-        elif result=="FAKE":
-            st.error("🔴 FAKE NEWS")
-        else:
-            st.warning("⚠️ UNSURE / Could not classify confidently")
-        with st.expander("📄 Extracted Text"):
-            st.write(user_input)
+        try:
+            result = final_decision(user_input, page_url)
+            st.subheader("Final Verdict:")
+            if result=="REAL":
+                st.success("🟢 REAL NEWS")
+            elif result=="FAKE":
+                st.error("🔴 FAKE NEWS")
+            elif "ERROR" in result:
+                st.error(result)
+            else:
+                st.warning("⚠️ UNSURE")
+
+            with st.expander("🔎 Debug: Show Extracted Text"):
+                st.write(user_input)
+        except Exception as e:
+            st.error(f"⚠️ Error during analysis: {e}")
